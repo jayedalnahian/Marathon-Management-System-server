@@ -1,5 +1,5 @@
 require("dotenv").config();
-const path = require('path');
+const path = require("path");
 const express = require("express");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const cors = require("cors");
@@ -47,10 +47,10 @@ const verifyJWT = async (req, res, next) => {
 
 async function run() {
   try {
-    // await client.connect();
     const marathonCollection = client.db("marathonDB").collection("marathon");
     const userCollection = client.db("marathonDB").collection("users");
     const opinionCollection = client.db("marathonDB").collection("opinion");
+    const volantiarCollection = client.db("marathonDB").collection("volantiar");
 
     app.post("/marathons", verifyJWT, async (req, res) => {
       try {
@@ -93,6 +93,22 @@ async function run() {
       }
     });
 
+    app.get("/users/:email", async (req, res) => {
+      try {
+        const email = req.params.email;
+        const result = await userCollection.findOne({ email });
+
+        if (!result) {
+          return res.status(404).json({ error: "User not found" });
+        }
+
+        res.json(result);
+      } catch (error) {
+        console.error("failed to get user data", error);
+        res.status(500).json({ error: "Failed to get user data" });
+      }
+    });
+
     app.patch(
       "/update-registration/:marathonId",
       verifyJWT,
@@ -128,18 +144,73 @@ async function run() {
     app.get("/marathon/:id", async (req, res) => {
       try {
         const id = req.params.id;
+        console.log("Fetching marathon with ID:", id);
+
+        // Validate ID format first
+        if (!ObjectId.isValid(id)) {
+          console.log("Invalid ID format:", id);
+          return res.status(400).json({ error: "Invalid ID format" });
+        }
+
         const query = { _id: new ObjectId(id) };
+        console.log("MongoDB query:", query);
+
         const result = await marathonCollection.findOne(query);
-        res.send(result);
+        console.log("Query result:", result);
+
+        if (!result) {
+          return res.status(404).json({ error: "Marathon not found" });
+        }
+
+        // Explicitly set content-type
+        res.setHeader("Content-Type", "application/json");
+        res.json(result);
       } catch (error) {
         console.error("Error fetching marathon:", error);
-        res.status(500).send({ error: "Failed to fetch marathon" });
+        res.status(500).json({
+          error: "Failed to fetch marathon",
+          details: error.message,
+        });
       }
+    });
+
+    app.get("/my-registrations/:userId", async (req, res) => {
+      try {
+        const userId = req.params.userId;
+
+        const marathons = await marathonCollection
+          .find({
+            totalRegistrationCount: {
+              $elemMatch: { userId: userId },
+            },
+          })
+          .toArray();
+
+        res.status(200).json(marathons);
+      } catch (error) {
+        console.error("Error fetching marathons:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
+    app.post("/volantiar", async (req, res) => {
+      const data = req.body;
+      try {
+        const result = await volantiarCollection.insertOne(data);
+        res.send(result);
+      } catch {
+        res.send({ error: "Failed to upload" });
+      }
+    });
+
+    app.get("/volantiar", async (req, res) => {
+      const result = await volantiarCollection.find().limit(4).toArray();
+      res.send(result);
     });
 
     app.get("/marathons-6", async (req, res) => {
       try {
-        const result = await marathonCollection.find().limit(6).toArray();
+        const result = await marathonCollection.find().limit(4).toArray();
         res.send(result);
       } catch (error) {
         console.error("Error fetching marathons:", error);
@@ -236,7 +307,7 @@ async function run() {
       }
     );
 
-    app.patch("/marathonApply/:id", verifyJWT, async (req, res) => {
+    app.patch("/marathonApply/:id", async (req, res) => {
       try {
         const { id } = req.params;
         const updateOperation = req.body;
@@ -284,7 +355,7 @@ async function run() {
       }
     });
 
-    await client.db("admin").command({ ping: 1 });
+    
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
     );
